@@ -24,7 +24,7 @@ const SAFETY_POIS = {
       { id: "sa1", label: "Botanic Avenue", coord: [54.583, -5.9327] },
       { id: "sa2", label: "Lisburn Road", coord: [54.5838, -5.9453] },
       { id: "sa3", label: "Stranmillis", coord: [54.5758, -5.9384] },
-      { id: "sa4", label: "Holylands", coord: [54.5806, -5.9182] },
+      { id: "sa4", label: "Holylands", coord: [54.5842, -5.9284] },
     ],
   },
   openBusinesses: {
@@ -49,7 +49,7 @@ const MAX_SCALE = 2.2;
 const FOCUS_AREAS = [
   { id: "stranmillis", label: "Stranmillis", coord: [54.5758, -5.9384] },
   { id: "botanic", label: "Botanic", coord: [54.583, -5.9327] },
-  { id: "holylands", label: "Holylands", coord: [54.5806, -5.9182] },
+  { id: "holylands", label: "Holylands", coord: [54.5842, -5.9284] },
   { id: "lisburn", label: "Lisburn Road", coord: [54.5838, -5.9453] },
 ];
 
@@ -76,7 +76,7 @@ const LOCAL_STORAGE_KEY = "safe-walking-reports";
 const PIN_POOLS = [
   { id: "stranmillis", label: "Stranmillis", coord: [54.5758, -5.9384] },
   { id: "botanic", label: "Botanic Avenue", coord: [54.583, -5.9327] },
-  { id: "holylands", label: "Holylands", coord: [54.5806, -5.9182] },
+  { id: "holylands", label: "Holylands", coord: [54.5842, -5.9284] },
   { id: "lisburn", label: "Lisburn Road", coord: [54.5838, -5.9453] },
   { id: "queens", label: "Queen's University", coord: [54.5845, -5.9346] },
   { id: "cityhall", label: "City Hall", coord: [54.5973, -5.9301] },
@@ -91,24 +91,130 @@ const initialReports = [
 ];
 
 function hoursSince(timestamp) {
-  return (Date.now() - timestamp) / 1000 / 60 / 60;
+  return (Date.now() - toTimestampMs(timestamp)) / 1000 / 60 / 60;
 }
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function toTimestampMs(value) {
+  if (typeof value === "number") return value;
+  if (value instanceof Date) return value.getTime();
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
+function normalizeCoord(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed) && parsed.length >= 2) return parsed;
+      } catch {
+        // fall through to other parsing paths
+      }
+    }
+    if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
+      const [first, second] = trimmed.slice(1, -1).split(",");
+      const lat = Number(first);
+      const lon = Number(second);
+      if (!Number.isNaN(lat) && !Number.isNaN(lon)) return [lat, lon];
+    }
+    if (trimmed.includes(",")) {
+      const [first, second] = trimmed.replace(/[()\[\]]/g, "").split(",");
+      const lat = Number(first);
+      const lon = Number(second);
+      if (!Number.isNaN(lat) && !Number.isNaN(lon)) return [lat, lon];
+    }
+  }
+  if (value && typeof value === "object") {
+    if ("lat" in value && "lng" in value) return [value.lat, value.lng];
+    if ("x" in value && "y" in value) return [value.x, value.y];
+  }
+  return value;
+}
+
+function normalizeReportRow(row) {
+  return {
+    id: row.id,
+    type: row.type,
+    coord: normalizeCoord(row.coord ?? row.coords),
+    timestamp: toTimestampMs(row.timestamp),
+  };
+}
+
 const ICON_SVGS = {
-  moon: `<path d="M11.5 2.2a6.8 6.8 0 1 0 2.3 11A6 6 0 1 1 11.5 2.2Z" />`,
-  alert: `<path d="M8 2.2 14.6 13H1.4L8 2.2Z" /><path d="M8 6.1v3.6" /><circle cx="8" cy="12" r="0.8" />`,
-  run: `<circle cx="10.5" cy="3.5" r="1.5"/><path d="M7 8.5 9 6.5l2 1.2 2.4 2.3M6 13l2.2-3.2 2.4 1.3 2.4 2.9"/>`,
-  chat: `<path d="M2.2 3.5h11.6v7H7l-3.2 2.5V3.5Z" />`,
-  bulb: `<path d="M8 2a4 4 0 0 1 2.4 7.2c-.6.4-.9.9-1 1.5H6.6c-.1-.6-.4-1.1-1-1.5A4 4 0 0 1 8 2Z"/><path d="M6.2 12.2h3.6M6.6 14h2.8" />`,
-  quiet: `<path d="M6.2 5.2c1.2-1.2 2.7-1.2 4 0M5 9.4l6-6M8 9.8c1.5 0 2.7 1.2 2.7 2.7"/>`,
-  cone: `<path d="M7 2h2l2 8H5l2-8Z"/><path d="M4.2 12h7.6M3 14h10" />`,
-  music: `<path d="M10.5 2.6v7.2a2 2 0 1 1-1-1.7V4.2l4-1v5.6a2 2 0 1 1-1-1.7" />`,
-  crowd: `<circle cx="5" cy="5" r="2"/><circle cx="11" cy="5" r="2"/><path d="M2 13c.6-2 2.2-3 4-3s3.4 1 4 3M8 13c.5-1.6 1.8-2.5 3.2-2.5S14 11.4 14.5 13" />`,
-  store: `<path d="M2.4 6.2h11.2l-1-3.2H3.4l-1 3.2Z"/><path d="M3.4 6.2v7.2h9.2V6.2"/><path d="M6.2 13.4V9.8h3.6v3.6" />`,
+  moon: `
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10.8 2.4a5.7 5.7 0 1 0 1.7 9.8 5 5 0 0 1-1.7-9.8Z" />
+    </g>
+  `,
+  alert: `
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 2.2 14 13.8H2L8 2.2Z" />
+      <path d="M8 6.2v4.2" />
+      <circle cx="8" cy="12.2" r="0.7" />
+    </g>
+  `,
+  run: `
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11.4" cy="3.5" r="1.3" />
+      <path d="M6.2 8.4 8.8 6.3l2.3 1.5 2.7 1" />
+      <path d="M7 13.6l2.2-3.4 2.2 1.2 2.3 2.8" />
+      <path d="M8.2 6.6 7 9" />
+    </g>
+  `,
+  chat: `
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 3.4h8a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H7l-3 2.4V10.4H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1Z" />
+    </g>
+  `,
+  bulb: `
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 2.2a4 4 0 0 1 2.6 7.1c-.7.6-1.1 1.2-1.2 2H6.6c-.1-.8-.5-1.4-1.2-2A4 4 0 0 1 8 2.2Z" />
+      <path d="M6.6 12.2h2.8" />
+      <path d="M6.9 14h2.2" />
+    </g>
+  `,
+  quiet: `
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 6h2.6l3-2.4v9L5.6 10H3Z" />
+      <path d="M11 5.2 13.6 12" />
+    </g>
+  `,
+  cone: `
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6.2 2.2h3.6l2.2 9H4l2.2-9Z" />
+      <path d="M5.3 7.2h5.4" />
+      <path d="M4.5 10.2h7" />
+      <path d="M3.4 13.6h9.2" />
+    </g>
+  `,
+  music: `
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10.4 2.8v7.1a2 2 0 1 1-1-1.7V4.4l4-1v6.2a2 2 0 1 1-1-1.7" />
+    </g>
+  `,
+  crowd: `
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="4.5" cy="5.2" r="1.7" />
+      <circle cx="8" cy="4.4" r="2" />
+      <circle cx="11.5" cy="5.2" r="1.7" />
+      <path d="M1.8 13c.6-2 2.2-3.1 4-3.1s3.4 1.1 4 3.1" />
+      <path d="M6.2 13c.7-2.2 2.3-3.4 4.3-3.4 2 0 3.6 1.2 4.3 3.4" />
+    </g>
+  `,
+  store: `
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2.6 6.4h10.8l-1-3.2H3.6l-1 3.2Z" />
+      <path d="M3.6 6.4v6.9h8.8V6.4" />
+      <path d="M6.4 13.3V9.6h3.2v3.7" />
+      <path d="M4.4 6.4c.3 1 1.2 1.7 2.2 1.7s1.9-.7 2.2-1.7M9.2 6.4c.3 1 1.2 1.7 2.2 1.7s1.9-.7 2.2-1.7" />
+    </g>
+  `,
 };
 
 function pinHtml(color, scale, iconKey) {
@@ -163,6 +269,9 @@ function computeReportStrength(report, multiplier) {
 function groupReports(reports) {
   const groups = new Map();
   reports.forEach((report) => {
+    if (!Array.isArray(report.coord) || report.coord.length < 2) {
+      return;
+    }
     const key = `${report.coord[0].toFixed(4)}:${report.coord[1].toFixed(4)}`;
     const existing = groups.get(key) ?? {
       coord: report.coord,
@@ -348,20 +457,17 @@ export default function App() {
   useEffect(() => {
     if (supabaseEnabled) {
       supabase
-        .from("reports")
+        .from("reportedWalking")
         .select("*")
         .order("timestamp", { ascending: false })
         .limit(200)
-        .then(({ data }) => {
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("Supabase reports fetch failed:", error);
+            return;
+          }
           if (data?.length) {
-            setReports(
-              data.map((row) => ({
-                id: row.id,
-                type: row.type,
-                coord: row.coord,
-                timestamp: row.timestamp,
-              }))
-            );
+            setReports(data.map((row) => normalizeReportRow(row)));
           }
         });
 
@@ -369,13 +475,10 @@ export default function App() {
         .channel("reports-feed")
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "reports" },
+          { event: "INSERT", schema: "public", table: "reportedWalking" },
           (payload) => {
-            const row = payload.new;
-            setReports((prev) => [
-              { id: row.id, type: row.type, coord: row.coord, timestamp: row.timestamp },
-              ...prev,
-            ]);
+            const row = normalizeReportRow(payload.new);
+            setReports((prev) => (prev.some((report) => report.id === row.id) ? prev : [row, ...prev]));
           }
         )
         .subscribe();
@@ -458,35 +561,109 @@ export default function App() {
     return { total, latest };
   }, [activeReports]);
 
-  function addReport() {
+  function shouldRetryTimestamp(error) {
+    const message = String(error?.message ?? "").toLowerCase();
+    const details = String(error?.details ?? "").toLowerCase();
+    return (
+      error?.code === "22008" ||
+      message.includes("timestamp") ||
+      details.includes("timestamp") ||
+      message.includes("date/time field value out of range") ||
+      message.includes("datestyle")
+    );
+  }
+
+  async function insertReportRow(payload) {
+    const safePayload =
+      typeof payload.timestamp === "number"
+        ? { ...payload, timestamp: new Date(payload.timestamp).toISOString() }
+        : payload;
+    let { data, error } = await supabase.from("reportedWalking").insert(safePayload).select().single();
+    if (error && typeof payload.timestamp === "number" && shouldRetryTimestamp(error)) {
+      const retryPayload = {
+        ...safePayload,
+        timestamp: new Date(payload.timestamp).toISOString(),
+      };
+      ({ data, error } = await supabase.from("reportedWalking").insert(retryPayload).select().single());
+    }
+    return { data, error };
+  }
+
+  async function insertReportBatch(batch) {
+    const safeBatch = batch.map((report) =>
+      typeof report.timestamp === "number"
+        ? { ...report, timestamp: new Date(report.timestamp).toISOString() }
+        : report
+    );
+    let { data, error } = await supabase.from("reportedWalking").insert(safeBatch).select();
+    if (error && shouldRetryTimestamp(error)) {
+      const retryBatch = safeBatch.map((report) => ({
+        ...report,
+        timestamp:
+          typeof report.timestamp === "number" ? new Date(report.timestamp).toISOString() : report.timestamp,
+      }));
+      ({ data, error } = await supabase.from("reportedWalking").insert(retryBatch).select());
+    }
+    return { data, error };
+  }
+
+  async function addReport() {
+    const baseId = Date.now();
     const newReport = {
-      id: `r-${Date.now()}`,
+      id: baseId,
       type: selectedCategory.key,
       coord: selectedLocation.coord,
-      timestamp: Date.now(),
+      timestamp: baseId,
     };
     if (supabaseEnabled) {
-      supabase.from("reports").insert({
+      const payload = {
         id: newReport.id,
         type: newReport.type,
-        coord: newReport.coord,
+        coords: `[${newReport.coord[0]},${newReport.coord[1]}]`,
         timestamp: newReport.timestamp,
-      });
+      };
+      const { data, error } = await insertReportRow(payload);
+      if (error) {
+        console.error("Supabase insert failed:", error);
+        setReports((prev) => [newReport, ...prev]);
+        return;
+      }
+      const saved = normalizeReportRow(data);
+      setReports((prev) => (prev.some((report) => report.id === saved.id) ? prev : [saved, ...prev]));
     } else {
       setReports((prev) => [newReport, ...prev]);
     }
   }
 
-  function addBatchReports() {
+  async function addBatchReports() {
     const now = Date.now();
     const batch = Array.from({ length: 4 }).map((_, index) => ({
-      id: `r-${now}-${index}`,
+      id: now * 1000 + index,
       type: selectedCategory.key,
       coord: selectedLocation.coord,
       timestamp: now - index * 1000 * 60 * 4,
     }));
     if (supabaseEnabled) {
-      supabase.from("reports").insert(batch);
+      const payload = batch.map((report) => ({
+        id: report.id,
+        type: report.type,
+        coords: `[${report.coord[0]},${report.coord[1]}]`,
+        timestamp: report.timestamp,
+      }));
+      const { data, error } = await insertReportBatch(payload);
+      if (error) {
+        console.error("Supabase batch insert failed:", error);
+        setReports((prev) => [...batch, ...prev]);
+        return;
+      }
+      if (Array.isArray(data) && data.length) {
+        const normalized = data.map((row) => normalizeReportRow(row));
+        setReports((prev) => {
+          const existing = new Set(prev.map((report) => report.id));
+          const merged = normalized.filter((report) => !existing.has(report.id));
+          return [...merged, ...prev];
+        });
+      }
     } else {
       setReports((prev) => [...batch, ...prev]);
     }
@@ -884,16 +1061,6 @@ export default function App() {
         </div>
       </section>
 
-      <section className="cta">
-        <div>
-          <h2>Designed with students in mind</h2>
-          <p>
-            Built for Belfast and adaptable to other cities. This prototype shows how public
-            lighting data, crowdsourced reports, and time-of-day signals can support safer choices.
-          </p>
-        </div>
-        <button className="primary">Join the pilot</button>
-      </section>
     </div>
   );
 }
