@@ -503,17 +503,6 @@ function App() {
           </div>
         </div>
       </section>
-
-      <section className="cta">
-        <div>
-          <h2>Designed with students in mind</h2>
-          <p>
-            Built for Belfast and adaptable to other cities. This prototype shows how public
-            lighting data, crowdsourced reports, and time-of-day signals can support safer choices.
-          </p>
-        </div>
-        <button className="primary">Join the pilot</button>
-      </section>
     </div>
   );
 }
